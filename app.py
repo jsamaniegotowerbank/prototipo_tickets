@@ -18,12 +18,10 @@ model = genai.GenerativeModel('gemini-2.0-flash-exp')
 def inicializar_chat():
     if "messages" not in st.session_state:
         st.session_state.messages = [
-            {"role": "assistant", "content": "¡Hola! Soy tu asistente de soporte técnico. Estoy aquí para ayudarte a resolver problemas con tus equipos y sistemas. Por favor, descríbeme el problema que estás experimentando con todo detalle."}
+            {"role": "assistant", "content": "¡Hola! Soy tu asistente de soporte. Por favor, describe tu problema técnico."}
         ]
     if "ticket_creado" not in st.session_state:
         st.session_state.ticket_creado = False
-    if "problema_detectado" not in st.session_state:
-        st.session_state.problema_detectado = False
     if "contador_mensajes" not in st.session_state:
         st.session_state.contador_mensajes = 0
 
@@ -83,133 +81,121 @@ def determinar_tipo_issue(descripcion_completa: str) -> str:
 
 def generar_respuesta_gemini(prompt_usuario: str, historial: list) -> str:
     """
-    Generar respuesta usando Gemini y crear ticket INMEDIATAMENTE cuando corresponda
+    Generar respuesta usando Gemini - VERSIÓN SIMPLIFICADA Y DIRECTA
     """
     try:
-        # Incrementar contador de mensajes
-        st.session_state.contador_mensajes += 1
-        
         # VERIFICAR PRIMERO si el usuario pide EXPLÍCITAMENTE crear ticket
         usuario_pide_ticket = any(phrase in prompt_usuario.lower() for phrase in 
                                  ['crea el ticket', 'crea ticket', 'crear ticket', 'haz el ticket', 
-                                  'genera el ticket', 'abre un ticket', 'si, crea el ticket', 'si crea el ticket'])
-        
+                                  'genera el ticket', 'abre un ticket', 'si, crea el ticket', 
+                                  'si crea el ticket', 'confirmo', 'sí', 'si'])
+
         # Si el usuario pide ticket EXPLÍCITAMENTE, CREARLO INMEDIATAMENTE
         if usuario_pide_ticket and not st.session_state.ticket_creado:
             return crear_ticket_inmediato(historial, prompt_usuario)
-        
-        # Construir contexto conversacional normal
+
+        # Si YA se creó un ticket, no continuar la conversación
+        if st.session_state.ticket_creado:
+            return "El ticket ya fue creado. Nuestro equipo técnico se contactará contigo pronto."
+
+        # Construir contexto conversacional MÁS DIRECTO
         contexto = f"""
-        Eres un asistente de soporte técnico conversacional. Tu objetivo es:
-        1. Hacer preguntas para entender completamente el problema
-        2. Intentar soluciones paso a paso
-        3. Ser proactivo y OFRECER crear un ticket cuando el problema sea complejo
-        4. No decir "voy a crear el ticket" - solo OFRECER crearlo
-        5. Si ofreces crear ticket, el usuario debe confirmar explícitamente
-        
-        Historial de la conversación:
-        {historial}
-        
+        Eres un asistente de soporte técnico. Tu objetivo es:
+        1. Hacer preguntas para entender el problema
+        2. Proporcionar soluciones paso a paso
+        3. Después de 3-4 intercambios, OFRECER crear un ticket claramente
+        4. NO divagar - ser directo y útil
+
+        Historial reciente:
+        {historial[-4:]}  # Solo últimos 4 mensajes para contexto
+
         Último mensaje del usuario: {prompt_usuario}
-        
-        Responde en español continuando la conversación naturalmente.
-        Si es apropiado OFRECER crear un ticket, hazlo claramente.
+
+        Responde de manera CONCISA y DIRECTA en español.
+        Si es momento de ofrecer un ticket, di claramente: "¿Te gustaría que cree un ticket de soporte?"
         """
-        
+
         response = model.generate_content(contexto)
         respuesta = response.text
-        
-        # Verificar si Gemini OFRECE crear ticket (no lo crea, solo lo ofrece)
-        ofrece_ticket_gemini = any(phrase in respuesta.lower() for phrase in 
-                                  ['puedo crear un ticket', 'te gustaría que cree', 'puedo generar un ticket', 
-                                   'deseas que cree', 'quieres que cree', 'puedo abrir un ticket', 'puedo crear un reporte'])
-        
-        # Lógica para OFRECER ticket (no crearlo)
+
+        # Lógica SIMPLIFICADA para ofrecer ticket
         deberia_ofrecer_ticket = (
-            st.session_state.contador_mensajes >= 4 and
+            st.session_state.contador_mensajes >= 3 and
             not st.session_state.ticket_creado and
             not usuario_pide_ticket and
             any(palabra in prompt_usuario.lower() for palabra in 
-                ['no funciona', 'no sirve', 'no se soluciona', 'sigue igual', 'persiste'])
+                ['sigue igual', 'no funciona', 'no sirve', 'persiste', 'no se soluciona'])
         )
-        
-        # Si es momento de OFRECER ticket (no crearlo)
-        if deberia_ofrecer_ticket and ofrece_ticket_gemini and not st.session_state.ticket_creado:
-            # Aquí solo ofrecemos, no creamos
-            return respuesta
-        
+
+        # Si es momento de OFRECER ticket, asegurarse de que la respuesta lo ofrezca
+        if deberia_ofrecer_ticket and "ticket" not in respuesta.lower():
+            respuesta += "\n\n¿Te gustaría que cree un ticket de soporte técnico para que un especialista revise tu caso?"
+
         return respuesta
-        
+
     except Exception as e:
-        return f"Lo siento, ocurrió un error en el sistema: {str(e)}"
+        return f"Lo siento, ocurrió un error: {str(e)}"
     
 def crear_ticket_inmediato(historial: list, prompt_usuario: str) -> str:
     """
-    Función para crear el ticket INMEDIATAMENTE sin mensajes intermedios
+    Función para crear el ticket INMEDIATAMENTE - VERSIÓN MÁS ROBUSTA
     """
     try:
-        # GENERAR RESUMEN COMPLETO DE LA CONVERSACIÓN
+        # EXTRAER TODA LA CONVERSACIÓN
+        conversacion_completa = "CONVERSACIÓN COMPLETA:\n"
+        for mensaje in historial:
+            rol = "Asistente" if mensaje["role"] == "assistant" else "Usuario"
+            conversacion_completa += f"{rol}: {mensaje['content']}\n"
+        
+        conversacion_completa += f"Usuario: {prompt_usuario}"
+
+        # GENERAR RESUMEN MÁS DIRECTO
         contexto_resumen = f"""
-        Eres un técnico de soporte. Analiza toda esta conversación y genera un resumen profesional para un ticket.
-        
-        CONVERSACIÓN COMPLETA:
-        {historial}
-        ÚLTIMO MENSAJE: {prompt_usuario}
-        
-        Instrucciones:
-        1. Crea un TÍTULO claro y conciso (máximo 8 palabras)
-        2. Escribe una DESCRIPCIÓN técnica que incluya:
-           - Síntomas del problema específicos
-           - Todos los pasos de solución ya intentados
-           - Información del equipo/hardware
-           - Datos de contacto del usuario si están disponibles
-        3. Usa lenguaje técnico profesional
-        
-        Formato de respuesta:
-        TÍTULO: [título aquí]
-        DESCRIPCIÓN: [descripción técnica detallada aquí]
+        ANALIZA esta conversación y crea un resumen para ticket técnico:
+
+        {conversacion_completa}
+
+        GENERA SOLO 2 LÍNEAS:
+        LÍNEA 1: TÍTULO: [máximo 6 palabras]
+        LÍNEA 2: DESCRIPCIÓN: [descripción técnica concisa]
+
+        Ejemplo:
+        TÍTULO: Problema conexión WiFi en Windows
+        DESCRIPCIÓN: Usuario no puede conectarse a ninguna red WiFi. Se verificaron adaptador, controladores y configuración sin éxito. Equipo: Windows.
         """
-        
+
         response_resumen = model.generate_content(contexto_resumen)
         resumen_completo = response_resumen.text
-        
-        # Extraer título y descripción
-        lineas = resumen_completo.split('\n')
-        titulo = "Problema técnico reportado por usuario"
-        descripcion = resumen_completo
-        
-        for linea in lineas:
-            if linea.startswith('TÍTULO:') or linea.startswith('TITULO:'):
-                titulo = linea.replace('TÍTULO:', '').replace('TITULO:', '').strip()
-            elif linea.startswith('DESCRIPCIÓN:') or linea.startswith('DESCRIPCION:'):
-                descripcion = linea.replace('DESCRIPCIÓN:', '').replace('DESCRIPCION:', '').strip()
-        
-        # Determinar tipo de issue
-        tipo_issue_id = determinar_tipo_issue(descripcion + " " + str(historial))
-        
+
+        # EXTRAER TÍTULO Y DESCRIPCIÓN DE FORMA MÁS SIMPLE
+        titulo = "Problema técnico reportado"
+        descripcion = conversacion_completa  # Por defecto, toda la conversación
+
+        if "TÍTULO:" in resumen_completo:
+            partes = resumen_completo.split("TÍTULO:")
+            if len(partes) > 1:
+                titulo_parte = partes[1].split("DESCRIPCIÓN:")[0].strip()
+                titulo = titulo_parte
+                
+                if "DESCRIPCIÓN:" in resumen_completo:
+                    desc_parte = resumen_completo.split("DESCRIPCIÓN:")[1].strip()
+                    descripcion = desc_parte
+
         # CREAR EL TICKET REAL
         resultado = crear_ticket_jira(
-            summary=titulo[:100],
+            summary=titulo[:80],
             description=descripcion,
-            issuetype_id=tipo_issue_id
+            issuetype_id="10103"  # Incidencia Tecnológica por defecto
         )
-        
+
         if resultado["success"]:
             st.session_state.ticket_creado = True
-            st.session_state.problema_detectado = True
-            
-            # Respuesta FINAL y REAL
-            respuesta_final = f"✅ **Ticket creado exitosamente: {resultado['ticket_key']}**\n\n"
-            respuesta_final += f"📋 **Asunto:** {titulo}\n\n"
-            respuesta_final += f"🔧 **Tipo de incidencia:** {resultado.get('ticket_type', 'Incidencia Tecnológica')}\n\n"
-            respuesta_final += f"⏰ **Nuestro equipo técnico se contactará contigo pronto.**"
-            
-            return respuesta_final
+            return f"✅ **Ticket creado: {resultado['ticket_key']}**\n\n**Asunto:** {titulo}\n\n**Descripción:** {descripcion[:150]}...\n\n🔧 **Nuestro equipo técnico te contactará pronto.**"
         else:
-            return f"❌ **Error al crear el ticket:** {resultado['error']}\n\nPor favor, contacta al soporte técnico directamente."
-            
+            return f"❌ **Error:** No se pudo crear el ticket. {resultado['error']}"
+
     except Exception as e:
-        return f"❌ **Error al procesar la solicitud:** {str(e)}\n\nPor favor, intenta nuevamente o contacta al soporte técnico."
+        return f"❌ **Error:** No se pudo procesar la solicitud. {str(e)}"
 
 def main():
     inicializar_chat()
