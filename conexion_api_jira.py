@@ -38,13 +38,18 @@ def crear_ticket_jira(summary: str, description: str, issuetype_id: str = "10103
         "10018": "Subtarea"
     }
     
+    # 🔥 CORRECCIÓN: Limpiar el summary de saltos de línea
+    summary_limpio = summary.replace('\n', ' ').replace('\r', ' ').strip()
+    # También limitar la longitud por si acaso
+    summary_limpio = summary_limpio[:100]
+    
     # Payload corregido con la estructura exacta de Jira
     payload = {
         "fields": {
             "project": {
                 "key": os.getenv('JIRA_PROJECT_KEY')
             },
-            "summary": summary,
+            "summary": summary_limpio,  # 🔥 Usar el summary limpio aquí
             "description": {
                 "type": "doc",
                 "version": 1,
@@ -68,6 +73,7 @@ def crear_ticket_jira(summary: str, description: str, issuetype_id: str = "10103
     
     try:
         print(f"[DEBUG] Creando ticket tipo: {tipos_issue.get(issuetype_id, issuetype_id)}")
+        print(f"[DEBUG] Summary: {summary_limpio}")  # 🔥 Para debug
         response = requests.post(url, json=payload, auth=auth, headers=headers)
         
         if response.status_code == 201:
